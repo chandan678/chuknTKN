@@ -2,6 +2,8 @@
 
 > **Long conversations without context decay.**
 
+⚠️ **DEVELOPMENT STATUS**: This project is under active development. The API is stable for V0 (Manager mode), but features and interfaces may change. Use in production at your own discretion.
+
 A client-side middleware that automatically manages LLM context in long conversations—preventing degradation, preserving critical information, and keeping your chats productive without manual intervention.
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
@@ -68,7 +70,7 @@ cd chunkTKN
 
 # Create virtual environment
 python3.10 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+source venv/bin/activate  # On Windows: venv\Scripts\activate 
 
 # Install in editable mode
 pip install -e .
@@ -255,15 +257,17 @@ for i in range(20):
 print("\n" + "="*60)
 print("📊 CHUNKING HISTORY")
 print("="*60)
+print(f"Session ID: {dev_storage.session_id}")
+print(f"Session saved to: {dev_storage.session_file}")
 
-for idx, chunk_event in enumerate(dev_storage.chunk_history, 1):
+for idx, chunk_record in enumerate(dev_storage.get_chunk_history(), 1):
     print(f"\n🔄 Chunk #{idx}")
-    print(f"   Tokens before: {chunk_event['tokens']:,}")
-    print(f"   Messages before: {len(chunk_event['context'])}")
-    print(f"   Messages after: {len(chunk_event['chunked_context'])}")
+    print(f"   Tokens before: {chunk_record.tokens:,}")
+    print(f"   Messages before: {len(chunk_record.context)}")
+    print(f"   Messages after: {len(chunk_record.chunked_context)}")
     
     # Show what was preserved
-    chunked = chunk_event['chunked_context']
+    chunked = chunk_record.chunked_context
     print(f"\n   📋 New context structure:")
     for msg in chunked[:3]:  # Show first 3 messages
         role = msg['role'].upper()
@@ -273,23 +277,173 @@ for idx, chunk_event in enumerate(dev_storage.chunk_history, 1):
 
 ### Dev Mode CLI Tool
 
-chunkTKN includes a built-in CLI with dev mode:
+chunkTKN includes a powerful CLI for testing and comparing different chunking strategies:
 
 ```bash
-# Start interactive chat with dev mode enabled
+# Start with all 3 default chunkers (concise, detailed, code_focused)
 python -m chunktkn.cli --dev
 
-# Example session:
-# You: Help me build a web scraper
-# Assistant: [response]
-# 
-# 📊 Stats: 234 tokens | 0 chunks | Trigger: 50,000
-# 
-# You: What libraries should I use?
-# Assistant: [response]
-# 
-# 📊 Stats: 456 tokens | 0 chunks | Trigger: 50,000
+# Run specific chunkers
+python -m chunktkn.cli --dev --chunkers concise
+
+# Multiple chunkers
+python -m chunktkn.cli --dev --chunkers "detailed,code_focused"
+
+# Customize trigger and target
+python -m chunktkn.cli --dev --chunk-trigger 2000 --target-summary 500
+
+# Limit chunking events for testing
+python -m chunktkn.cli --dev --max-chunks 3
 ```
+
+#### Key Concept
+
+Dev mode runs **multiple chunkers in parallel** with different summarization prompts. All chunkers:
+- Track the **same conversation**
+- Receive the **same messages**
+- Show **ONE response** to your questions
+
+The differences only appear **when chunking triggers** - that's when you see how each summarization strategy compressed the context differently!
+
+#### Example Session
+
+```bash
+$ python -m chunktkn.cli --dev --chunk-trigger 2000
+
+============================================================
+chunkTKN Development Mode
+============================================================
+
+Running 3 chunker(s):
+  - concise
+  - detailed
+  - code_focused
+
+you> Tell me about Python
+
+Python is a high-level programming language...
+
+# Continue chatting normally...
+you> What about web frameworks?
+
+Flask and Django are popular choices...
+
+# When chunking triggers, see the differences!
+============================================================
+🔄 [concise] CHUNKED: 2,166 → 1,865 tokens
+============================================================
+[concise] Summary:
+Python discussion. Key points: syntax, OOP, web frameworks.
+
+============================================================
+🔄 [detailed] CHUNKED: 2,507 → 2,377 tokens
+============================================================
+[detailed] Summary:
+Comprehensive Python conversation covering basic syntax,
+object-oriented programming with detailed examples...
+
+============================================================
+🔄 [code_focused] CHUNKED: 2,432 → 2,233 tokens
+============================================================
+[code_focused] Summary:
+Python examples:
+```python
+def hello():
+    print("Hello!")
+```
+```
+
+#### Available Commands
+
+| Command | Description |
+|---------|-------------|
+| `/stats` | Show token counts and chunk statistics |
+| `/history` | Show chunking history for all chunkers |
+| `/save` | Save all sessions to disk |
+| `/sessions` | List all recorded dev sessions |
+| `/info` | Show current session information |
+| `/set trigger N` | Change chunk trigger mid-session |
+| `/set target N` | Change target summary size mid-session |
+| `/set chunkers LIST` | Switch active chunkers on-the-fly |
+| `/exit` | Exit dev mode |
+
+#### Dynamic Configuration
+
+You can adjust chunking behavior mid-conversation:
+
+```bash
+you> /set trigger 1000
+✓ Chunk trigger set to 1,000 tokens
+
+you> /set target 200
+✓ Target summary set to 200 tokens
+
+you> /set chunkers code_focused
+✓ Active chunkers: code_focused
+```
+
+**Validation**: Invalid settings are rejected with clear error messages:
+
+```bash
+you> /set trigger -100
+Error: Value must be positive (got -100)
+
+you> /set target 5000
+Error: Target summary (5,000) must be less than trigger (2,000)
+```
+
+#### Default Chunkers
+
+| Chunker | Summarization Prompt | Best For |
+|---------|---------------------|----------|
+| `concise` | "Be brief and direct" | Quick summaries, testing compression |
+| `detailed` | "Be thorough with examples" | Preserving context, complex discussions |
+| `code_focused` | "Prioritize code examples" | Programming sessions, debugging |
+
+**Note**: These prompts are **ONLY used during summarization**, not during regular chat!
+
+#### Session Management
+
+Dev mode automatically saves everything:
+
+```bash
+Session Directory: ./saved/20251214_030452_2e7fa159/
+├── dev_concise_context_1.json       # Concise chunker's state
+├── dev_detailed_context_1.json      # Detailed chunker's state
+└── dev_code_focused_context_1.json  # Code-focused chunker's state
+```
+
+Use `/save` to persist sessions:
+
+```bash
+you> /save
+
+[concise] Saved to: ./saved/20251214_030452_2e7fa159/dev_concise_context_1.json
+[detailed] Saved to: ./saved/20251214_030452_2e7fa159/dev_detailed_context_1.json
+[code_focused] Saved to: ./saved/20251214_030452_2e7fa159/dev_code_focused_context_1.json
+```
+
+#### Use Cases
+
+**Compare Summarization Strategies**:
+```bash
+python -m chunktkn.cli --dev
+# Chat normally, see which chunker preserves information best
+```
+
+**Test Low-Trigger Chunking**:
+```bash
+python -m chunktkn.cli --dev --chunk-trigger 100 --target-summary 20
+# Force frequent chunking to test behavior
+```
+
+**Limit Testing Scope**:
+```bash
+python -m chunktkn.cli --dev --max-chunks 2
+# Stop after 2 chunking events
+```
+
+For more details, see [docs/DEV_MODE.md](docs/DEV_MODE.md)
 
 ### Custom Dev Logging
 

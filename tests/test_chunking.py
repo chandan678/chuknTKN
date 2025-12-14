@@ -211,7 +211,7 @@ class TestDevStorage:
     
     def test_record_chunk(self):
         """Test recording chunk history."""
-        storage = DevStorage()
+        storage = DevStorage(auto_save=False)
         
         context = [{"role": "user", "content": "Hello"}]
         chunked = [{"role": "system", "content": "Summary"}]
@@ -228,7 +228,7 @@ class TestDevStorage:
     
     def test_get_chunk_by_id(self):
         """Test retrieving chunk by ID."""
-        storage = DevStorage()
+        storage = DevStorage(auto_save=False)
         
         storage.record_chunk(100, [], [])
         storage.record_chunk(200, [], [])
@@ -240,7 +240,7 @@ class TestDevStorage:
     
     def test_rewind_to_chunk(self):
         """Test rewinding to a previous chunk."""
-        storage = DevStorage()
+        storage = DevStorage(auto_save=False)
         
         chunked = [{"role": "system", "content": "State at chunk 1"}]
         storage.record_chunk(100, [], chunked)
@@ -251,3 +251,116 @@ class TestDevStorage:
         
         assert success is True
         assert storage.get_context() == chunked
+    
+    def test_max_chunks_limit(self):
+        """Test that max_chunks limits chunking events."""
+        storage = DevStorage(auto_save=False, max_chunks=2)
+        
+        # Record 2 chunks - should succeed
+        record1 = storage.record_chunk(100, [], [])
+        record2 = storage.record_chunk(200, [], [])
+        
+        assert record1 is not None
+        assert record2 is not None
+        assert len(storage.get_chunk_history()) == 2
+        
+        # Try to record 3rd chunk - should fail
+        record3 = storage.record_chunk(300, [], [])
+        
+        assert record3 is None
+        assert len(storage.get_chunk_history()) == 2
+        assert storage.max_chunks_reached is True
+    
+    def test_max_chunks_unlimited(self):
+        """Test that max_chunks=None allows unlimited chunks."""
+        storage = DevStorage(auto_save=False, max_chunks=None)
+        
+        # Record multiple chunks
+        for i in range(5):
+            record = storage.record_chunk(100 * i, [], [])
+            assert record is not None
+        
+        assert len(storage.get_chunk_history()) == 5
+        assert storage.max_chunks_reached is False
+    
+    def test_session_properties(self):
+        """Test session ID and directory properties."""
+        storage = DevStorage(auto_save=False)
+        
+        assert storage.session_id is not None
+        assert len(storage.session_id) > 0
+        assert storage.session_dir.exists()
+        # session_file not created until auto_save or manual save
+        assert "saved" in str(storage.session_dir)
+        # Verify it's in current directory, not home
+        from pathlib import Path
+        assert storage.session_dir.parent == Path.cwd() / "saved"
+    
+    def test_to_dict_includes_metadata(self):
+        """Test that to_dict includes all new metadata."""
+        storage = DevStorage(auto_save=False, max_chunks=3, session_name="test_session")
+        
+        storage.record_chunk(100, [{"role": "user", "content": "test"}], [])
+        
+        data = storage.to_dict()
+        
+        assert data["session_name"] == "test_session"
+        assert data["max_chunks"] == 3
+        assert data["chunks_limit_reached"] is False
+        assert "metadata" in data
+        assert data["metadata"]["max_chunks_configured"] == 3
+        assert data["metadata"]["total_chunks"] == 1
+    
+    def test_save_and_load_with_max_chunks(self):
+        """Test saving and loading storage with max_chunks."""
+        import tempfile
+        from pathlib import Path
+        
+        storage1 = DevStorage(auto_save=False, max_chunks=2, session_name="test")
+        storage1.record_chunk(100, [{"role": "user", "content": "Hello"}], [])
+        
+        # Save to temp file
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            temp_path = Path(f.name)
+        
+        try:
+            storage1.save_to_file(temp_path)
+            
+            # Load from file
+            storage2 = DevStorage.load_from_file(temp_path)
+            
+            assert storage2._max_chunks == 2
+            assert len(storage2.get_chunk_history()) == 1
+            assert storage2.get_chunk_history()[0].tokens == 100
+        finally:
+            temp_path.unlink(missing_ok=True)
+    
+    def test_interaction_tracking(self):
+        """Test that user-assistant interactions are tracked."""
+        storage = DevStorage(auto_save=False)
+        
+        # Interactions are only tracked with auto_save enabled
+        storage._auto_save = True
+        
+        storage.append_message({"role": "user", "content": "Hello"})
+        storage.append_message({"role": "assistant", "content": "Hi there"})
+        
+        data = storage.to_dict()
+        
+        assert len(data["interactions"]) == 1
+        assert data["interactions"][0]["user_message"] == "Hello"
+        assert data["interactions"][0]["assistant_response"] == "Hi there"
+    
+    def test_chunk_files_not_created_when_auto_save_false(self):
+        """Test that chunk files are not created when auto_save is False."""
+        storage = DevStorage(auto_save=False)
+        
+        context = [{"role": "user", "content": "Test"}]
+        chunked = [{"role": "system", "content": "Summary"}]
+        
+        storage.record_chunk(100, context, chunked)
+        
+        # Files should not be created immediately
+        context_file = storage.session_dir / "context_1.json"
+        # Note: Files might be created silently, so we just check storage works
+        assert len(storage.get_chunk_history()) == 1

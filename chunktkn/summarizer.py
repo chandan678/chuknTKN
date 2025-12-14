@@ -90,19 +90,23 @@ def summarize_context(
     messages: list[Message],
     target_tokens: int,
     preserve_code: bool = True,
+    summarization_system_prompt: str | None = None,
 ) -> list[Message]:
     """Summarize conversation context using the provided backend.
     
     This function:
     1. Builds a summarization prompt
-    2. Calls the backend (same model user is using)
-    3. Returns a new context with the summary as a system message
+    2. Optionally adds a system prompt to guide summarization style
+    3. Calls the backend (same model user is using)
+    4. Returns a new context with the summary as a system message
     
     Args:
         backend: The model backend to use for summarization.
         messages: Conversation messages to summarize.
         target_tokens: Target token count for the summary.
         preserve_code: Whether to preserve code blocks verbatim.
+        summarization_system_prompt: Optional system prompt to guide summarization
+                                     (e.g., "Be concise", "Focus on code").
         
     Returns:
         New context with summarized history as a single system message.
@@ -115,9 +119,19 @@ def summarize_context(
     )
     
     # Call the model with the summarization request
-    summarization_messages: list[Message] = [
-        {"role": "user", "content": prompt}
-    ]
+    summarization_messages: list[Message] = []
+    
+    # Add system prompt if provided (guides summarization style)
+    if summarization_system_prompt:
+        summarization_messages.append({
+            "role": "system",
+            "content": summarization_system_prompt
+        })
+    
+    summarization_messages.append({
+        "role": "user",
+        "content": prompt
+    })
     
     summary = backend.chat(summarization_messages)
     

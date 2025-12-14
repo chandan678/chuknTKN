@@ -77,11 +77,12 @@ class ContextChunker:
     def _init_for_mode(self) -> None:
         """Initialize chunker based on operating mode."""
         if self._config.mode == ChunkMode.MANAGER:
-            # Manager mode: Add system prompt if configured
-            if self._config.system_prompt:
+            # Manager mode: Add USER system prompt if configured
+            # This is the prompt for the actual conversation (e.g., "You are a real estate agent")
+            if self._config.user_system_prompt:
                 system_msg: Message = {
                     "role": "system",
-                    "content": self._config.system_prompt,
+                    "content": self._config.user_system_prompt,
                 }
                 self._storage.append_message(system_msg)
         
@@ -265,6 +266,7 @@ class ContextChunker:
             messages=messages_to_summarize,
             target_tokens=self._config.target_summary_tokens,
             preserve_code=self._config.preserve_code,
+            summarization_system_prompt=self._config.summarization_system_prompt,
         )
         
         # Step 4: Build new context: [system_prompt?] + [summary] + [last_n]
@@ -346,11 +348,11 @@ class ContextChunker:
         self._total_tokens_processed = 0
         self._chunk_count = 0
         
-        # Re-add system prompt if configured
-        if self._config.system_prompt:
+        # Re-add user system prompt if configured
+        if self._config.user_system_prompt:
             system_msg: Message = {
                 "role": "system",
-                "content": self._config.system_prompt,
+                "content": self._config.user_system_prompt,
             }
             self._storage.append_message(system_msg)
     
