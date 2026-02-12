@@ -868,6 +868,8 @@ Built with:
 
 **⭐ Star us on GitHub — it helps!**
 
+# Developement Notes - this is a completely vibe coded project
+
 Made with ❤️ by [Chandan K S](https://github.com/chandan678)
 
 </div>
